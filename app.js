@@ -11,14 +11,17 @@ app.use(bodyParser.json());
 // These credentials should be received from the onboarding team.
 // These are account specific credentials
 
-const { API_KEY, IDENTITY_API_URL, GATEWAY_API_URL, PORT, REALM } = process.env;
+const { API_KEY, IDENTITY_API_URL, SINGLE_ORDER_URL, RECURRING_ORDER_URL, PORT, REALM } = process.env;
 
-if (!API_KEY || !IDENTITY_API_URL || !GATEWAY_API_URL) {
+if (!API_KEY || !IDENTITY_API_URL || !RECURRING_ORDER_URL || !SINGLE_ORDER_URL) {
   console.error("Error!!! Env configs not found");
   process.exit();
 }
 
-app.get('/health', (_, res) => res.send('App working'));
+app.get('/health', (_, res) => {
+  console.log("App is running")
+  res.send('App workng')
+});
 
 /* 
   Example route that handles order creation, a similar route should be implemented
@@ -37,33 +40,48 @@ app.post('/api/createOrder', async (req, res) => {
         'Authorization': `Basic ${API_KEY}`
       },
       data: {
-        grant_type: 'client_credentials',
-        realm: REALM,
+       grant_type: 'client_credentials',
+       realmName: REALM,
       }
     });
 
     const { access_token } = data;
+    console.log("access token is ", access_token)
+
+    let createOrderUrl = SINGLE_ORDER_URL
+    let contentType = "application/vnd.ni-payment.v2+json"
+
+    console.log(`request body is ${JSON.stringify(req.body)}`)
+    if(req.body.type == "RECURRING") {
+      createOrderUrl = RECURRING_ORDER_URL
+      contentType = "application/vnd.ni-recurring-payment.v2+json"
+    }
+
 
     // Create the order using the bearer token received from previous step and the order data received from client
     // Refer docs for the possible fields available for order creation
 
-    const { data: orderData } = await axios.post(GATEWAY_API_URL, {
+    console.log(`hitting ${createOrderUrl}`)
+    const { data: orderData } = await axios.post(createOrderUrl, {
       ...req.body
     }, {
       headers: {
         'Authorization': `Bearer ${access_token}`, // Note the access_token received in the previous step is passed here
-        'Content-Type': 'application/vnd.ni-payment.v2+json',
-        'Accept': 'application/vnd.ni-payment.v2+json'
+        'Content-Type': contentType,
+        'Accept': contentType
       },
     },
     );
-
+    const responseString = JSON.stringify(orderData);
+    const response = responseString.replaceAll("http://transaction-service","https://api-gateway.infradev.ksa.ngenius-payments.com")
+    
     res
       .status(200)
-      .send(orderData)
+      .send(JSON.parse(response))
 
   } catch (error) {
-    console.error(error);
+    console.log("logging error")
+    console.error(JSON.stringify(error));
     res
       .status(400)
       .send({
